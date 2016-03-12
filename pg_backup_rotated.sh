@@ -3,6 +3,9 @@
 ###########################
 ####### LOAD CONFIG #######
 ###########################
+
+##TODOs:
+#-delete old daily,  weekly and monthly backups
  
 while [ $# -gt 0 ]; do
         case $1 in
