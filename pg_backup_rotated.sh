@@ -1,12 +1,9 @@
 #!/bin/bash
- 
+
 ###########################
 ####### LOAD CONFIG #######
 ###########################
 
-##TODOs:
-#-delete old daily,  weekly and monthly backups
- 
 while [ $# -gt 0 ]; do
         case $1 in
                 -c)
@@ -19,173 +16,128 @@ while [ $# -gt 0 ]; do
                         ;;
         esac
 done
- 
+
 if [ -z $CONFIG_FILE_PATH ] ; then
         SCRIPTPATH=$(cd ${0%/*} && pwd -P)
         CONFIG_FILE_PATH="${SCRIPTPATH}/pg_backup.config"
 fi
- 
+
 if [ ! -r ${CONFIG_FILE_PATH} ] ; then
         echo "Could not load config file from ${CONFIG_FILE_PATH}" 1>&2
         exit 1
 fi
- 
+
 source "${CONFIG_FILE_PATH}"
- 
+
 ###########################
 #### PRE-BACKUP CHECKS ####
 ###########################
- 
+
 # Make sure we're running as the required backup user
 if [ "$BACKUP_USER" != "" -a "$(id -un)" != "$BACKUP_USER" ] ; then
 	echo "This script must be run as $BACKUP_USER. Exiting." 1>&2
 	exit 1
 fi
- 
- 
+
 ###########################
 ### INITIALISE DEFAULTS ###
 ###########################
- 
+
 if [ ! $HOSTNAME ]; then
 	HOSTNAME="localhost"
+    echo "No host specified, using localhost"
 fi;
- 
+
 if [ ! $USERNAME ]; then
 	USERNAME="postgres"
+    echo "No user specified, using postgres"
 fi;
- 
- 
+
+if [ ! $DATABASE ]; then
+    DATABASE="postgres"
+    echo "No database specified, backing up postgres"
+fi;
+
+TODAY=`date +\%Y-\%m-\%d`
+TODAY="2019-01-12"
+echo "Today is: ${TODAY}"
+
 ###########################
-#### START THE BACKUPS ####
+#### START THE BACKUP #####
 ###########################
- 
-function perform_backups()
-{
-	SUFFIX=$1
-	FINAL_BACKUP_DIR=$BACKUP_DIR"`date +\%Y\%m\%d`$SUFFIX-"
- 
-	#echo "Making backup directory in $FINAL_BACKUP_DIR"
- 
-	#if ! mkdir -p $FINAL_BACKUP_DIR; then
-	#	echo "Cannot create backup directory in $FINAL_BACKUP_DIR. Go and fix it!" 1>&2
-	#	exit 1;
-	#fi;
- 
- 
-	###########################
-	### SCHEMA-ONLY BACKUPS ###
-	###########################
- 
-	for SCHEMA_ONLY_DB in ${SCHEMA_ONLY_LIST//,/ }
-	do
-	        SCHEMA_ONLY_CLAUSE="$SCHEMA_ONLY_CLAUSE or datname ~ '$SCHEMA_ONLY_DB'"
-	done
- 
-	SCHEMA_ONLY_QUERY="select datname from pg_database where false $SCHEMA_ONLY_CLAUSE order by datname;"
- 
-	echo -e "\n\nPerforming schema-only backups"
-	echo -e "--------------------------------------------\n"
- 
-	SCHEMA_ONLY_DB_LIST=`psql -h "$HOSTNAME" -U "$USERNAME" -At -c "$SCHEMA_ONLY_QUERY" postgres`
- 
-	echo -e "The following databases were matched for schema-only backup:\n${SCHEMA_ONLY_DB_LIST}\n"
- 
-	for DATABASE in $SCHEMA_ONLY_DB_LIST
-	do
-	        echo "Schema-only backup of $DATABASE"
- 		
-	        if ! pg_dump -Fp -s -h "$HOSTNAME" -U "$USERNAME" "$DATABASE" | gzip --stdout | s3cmd --reduced-redundancy put - $FINAL_BACKUP_DIR"$DATABASE"_SCHEMA.sql.gz.in_progress --no-encrypt; then
-	                echo "[!!ERROR!!] Failed to backup database schema of $DATABASE" 1>&2
-	        else
-	                s3cmd mv $FINAL_BACKUP_DIR"$DATABASE"_SCHEMA.sql.gz.in_progress $FINAL_BACKUP_DIR"$DATABASE"_SCHEMA.sql.gz
-	        fi
-	done
- 
- 
-	###########################
-	###### FULL BACKUPS #######
-	###########################
- 
-	for SCHEMA_ONLY_DB in ${SCHEMA_ONLY_LIST//,/ }
-	do
-		EXCLUDE_SCHEMA_ONLY_CLAUSE="$EXCLUDE_SCHEMA_ONLY_CLAUSE and datname !~ '$SCHEMA_ONLY_DB'"
-	done
- 
-	FULL_BACKUP_QUERY="select datname from pg_database where not datistemplate and datallowconn $EXCLUDE_SCHEMA_ONLY_CLAUSE order by datname;"
- 
-	echo -e "\n\nPerforming full backups"
-	echo -e "--------------------------------------------\n"
- 
-	for DATABASE in `psql -h "$HOSTNAME" -U "$USERNAME" -At -c "$FULL_BACKUP_QUERY" postgres`
-	do
-		if [ $ENABLE_PLAIN_BACKUPS = "yes" ]
-		then
-			echo "Plain backup of $DATABASE"
- 			
-			if ! pg_dump -Fp -h "$HOSTNAME" -U "$USERNAME" "$DATABASE" | gzip --stdout | s3cmd --reduced-redundancy put - $FINAL_BACKUP_DIR"$DATABASE".sql.gz.in_progress --no-encrypt; then
-	                	echo "[!!ERROR!!] Failed to produce plain backup database schema of $DATABASE" 1>&2
-	        	else
-	                	s3cmd mv $FINAL_BACKUP_DIR"$DATABASE".sql.gz.in_progress $FINAL_BACKUP_DIR"$DATABASE".sql.gz
-	        	fi
-		fi
- 
-		if [ $ENABLE_CUSTOM_BACKUPS = "yes" ]
-		then
-			echo "Custom backup of $DATABASE"
- 			if ! pg_dump -Fc -h "$HOSTNAME" -U "$USERNAME" "$DATABASE" | gzip --stdout | s3cmd --reduced-redundancy put - $FINAL_BACKUP_DIR"$DATABASE".custom.in_progress --no-encrypt; then
-	                	echo "[!!ERROR!!] Failed to produce custom backup database schema of $DATABASE" 1>&2
-	        	else
-	                	s3cmd mv $FINAL_BACKUP_DIR"$DATABASE".custom.in_progress $FINAL_BACKUP_DIR"$DATABASE".custom
-	        	fi
-		fi
- 
-	done
- 
-	echo -e "\nAll database backups complete!"
-}
- 
+
+# NOTE: This has been refactored from the original to reduce the number of pg_dump calls
+
+echo "Performing full backup"
+echo "--------------------------------------------"
+if [ $ENABLE_CUSTOM_BACKUPS = "yes" ]
+then
+	echo "Custom backup of $DATABASE"
+		if ! pg_dump -Fc -h "$HOSTNAME" -U "$USERNAME" "$DATABASE" | gzip --stdout | aws s3 cp - s3://${BACKUP_BUCKET}/${DATABASE}/${DATABASE}_${TODAY}_daily.dump.gz.in_progress; then
+            	echo "[!!ERROR!!] Failed to produce custom backup database schema of $DATABASE" 1>&2
+    	else
+            	aws s3 mv s3://${BACKUP_BUCKET}/${DATABASE}/${DATABASE}_${TODAY}_daily.dump.gz.in_progress s3://${BACKUP_BUCKET}/${DATABASE}/${DATABASE}_${TODAY}_daily.dump.gz
+    	fi
+fi
+
+echo "Backup complete!"
+
+# MANAGE BACKUPS
+
+echo "Managing prior backups"
+echo "--------------------------------------------"
+
+DAILY_BACKUPS=$(aws s3api list-objects-v2 --bucket $BACKUP_BUCKET --prefix $DATABASE --query 'sort_by(Contents, &Key)[?contains(Key, `daily`)].Key' --output text)
+DAILY_BACKUPS=(${DAILY_BACKUPS//'\n'/})
+echo "Total daily backups: ${#DAILY_BACKUPS[@]}"
+# echo "Daily backups: ${DAILY_BACKUPS}"
+# WEEKLY_BACKUPS=`aws s3api list-objects-v2 --bucket $BACKUP_BUCKET --prefix $DATABASE --query 'sort_by(Contents, &Key)[?contains(Key, `weekly`)].{Key: Key}' --output text`
+# MONTHLY_BACKUPS=`aws s3api list-objects-v2 --bucket $BACKUP_BUCKET --prefix $DATABASE --query 'sort_by(Contents, &Key)[?contains(Key, `monthly`)].{Key: Key}' --output text`
+
+if (( ${#DAILY_BACKUPS[@]} > 7 ));
+then
+
+    DAY_OF_WEEK=`date +%u` #1-7 (Monday-Sunday)
+    echo "Day of week: ${DAY_OF_WEEK}"
+
+    if (( $DAY_OF_WEEK == $DAY_OF_WEEK_TO_KEEP ));
+    then
+        echo "Today is the weekly backup day, renaming expired daily backup to weekly backup"
+        # Take the 8th daily backup and rename it to weekly
+        NEW_WEEKLY=${DAILY_BACKUPS[0]}
+        aws s3 mv s3://${BACKUP_BUCKET}/${DAILY_BACKUPS[0]} s3://${BACKUP_BUCKET}/${NEW_WEEKLY/daily/weekly}
+        # Now, lets count the weekly backups
+        WEEKLY_BACKUPS=$(aws s3api list-objects-v2 --bucket $BACKUP_BUCKET --prefix $DATABASE --query 'sort_by(Contents, &Key)[?contains(Key, `weekly`)].Key' --output text)
+        WEEKLY_BACKUPS=(${WEEKLY_BACKUPS//'\n'/})
+        echo "Total weekly backups: ${#WEEKLY_BACKUPS[@]}"
+        if (( ${#WEEKLY_BACKUPS[@]} > $WEEKS_TO_KEEP ));
+        then
+            echo "Removing expired weekly backup"
+            # remove the oldest weekly backup
+            aws s3 rm s3://${BACKUP_BUCKET}/${WEEKLY_BACKUPS[0]}
+        fi
+        exit 0;
+    else
+        echo "Today is not the weekly backup day, deleting ${DAILY_BACKUPS[0]}"
+        aws s3 rm s3://${BACKUP_BUCKET}/${DAILY_BACKUPS[0]}
+        exit 0;
+    fi
+
+    DAY_OF_MONTH=`date +%d`
+    echo "Day of month: ${DAY_OF_MONTH}"
+
+    if (( $DAY_OF_MONTH == 1 ));
+    then
+        echo "Today is the first of the month, creating a monthly backup"
+        # if today is the first of the month, we also make a copy of today's backup and tag it with as monthly
+        NEW_MONTHLY=${DAILY_BACKUPS[-1]}
+        aws s3 cp s3://${BACKUP_BUCKET}/${NEW_MONTHLY} s3://${BACKUP_BUCKET}/${NEW_MONTHLY/daily/monthly}
+        # Eventually, we might want to stop keeping monthly backups
+        exit 0;
+    fi
+    exit 0;
+fi
+
+
+
 # MONTHLY BACKUPS
- 
-DAY_OF_MONTH=`date +%d`
- 
-if [ $DAY_OF_MONTH -eq 1 ];
-then
-	# Delete all expired monthly directories
-	find $BACKUP_DIR -maxdepth 1 -name "*-monthly" -exec rm -rf '{}' ';'
- 
-	perform_backups "-monthly"
- 
-	exit 0;
-fi
- 
-# WEEKLY BACKUPS
- 
-DAY_OF_WEEK=`date +%u` #1-7 (Monday-Sunday)
-EXPIRED_DAYS=`expr $((($WEEKS_TO_KEEP * 7) + 1))`
- 
-if [ $DAY_OF_WEEK = $DAY_OF_WEEK_TO_KEEP ];
-then
-	# Delete all expired weekly directories
-	find $BACKUP_DIR -maxdepth 1 -mtime +$EXPIRED_DAYS -name "*-weekly" -exec rm -rf '{}' ';'
- 
-	perform_backups "-weekly"
- 
-	exit 0;
-fi
- 
-# DAILY BACKUPS
- 
-# Delete daily backups $DAYS_TO_KEEP days old or more
-#find $BACKUP_DIR -maxdepth 1 -mtime +$DAYS_TO_KEEP -name "*-daily" -exec rm -rf '{}' ';'
-
-#set $deldate to date minus $DAYS_TO_KEEP
-deldate=`date +"%Y%m%d" --date="$DAYS_TO_KEEP days ago"`
-
-#remove leading bucket name from s3 object displayed by "s3cmd ls $bucketname"
-#compare first 8 chars of s3 object name (minus bucket name) with $deldate, 
-#if first 8 chars of s3 object name::int <= $deldate then delete those s3 objects
-s3cmd ls $BACKUP_DIR | awk -v bucket="$BACKUP_DIR" -v deldate="$deldate" '{gsub(bucket,"",$4);if (substr($4,0,9)<=deldate) system("s3cmd info " bucket$4)}' 
-#replace s3cmd info by s3cmd del
-
-perform_backups "-daily"
