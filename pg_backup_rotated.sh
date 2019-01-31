@@ -94,7 +94,7 @@ echo "Total daily backups: ${#DAILY_BACKUPS[@]}"
 # WEEKLY_BACKUPS=`aws s3api list-objects-v2 --bucket $BACKUP_BUCKET --prefix $DATABASE --query 'sort_by(Contents, &Key)[?contains(Key, `weekly`)].{Key: Key}' --output text`
 # MONTHLY_BACKUPS=`aws s3api list-objects-v2 --bucket $BACKUP_BUCKET --prefix $DATABASE --query 'sort_by(Contents, &Key)[?contains(Key, `monthly`)].{Key: Key}' --output text`
 
-if (( ${#DAILY_BACKUPS[@]} > 7 ));
+if (( ${#DAILY_BACKUPS[@]} == ${DAYS_TO_KEEP} + 1 ));
 then
 
     DAY_OF_WEEK=`date +%u` #1-7 (Monday-Sunday)
