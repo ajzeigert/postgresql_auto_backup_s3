@@ -59,7 +59,7 @@ if [ ! $DATABASE ]; then
 fi;
 
 TODAY=`date +\%Y-\%m-\%d`
-TODAY="2019-01-12"
+# TODAY="2019-01-12"
 echo "Today is: ${TODAY}"
 
 ###########################
@@ -70,15 +70,12 @@ echo "Today is: ${TODAY}"
 
 echo "Performing full backup"
 echo "--------------------------------------------"
-if [ $ENABLE_CUSTOM_BACKUPS = "yes" ]
-then
-	echo "Custom backup of $DATABASE"
-		if ! pg_dump -Fc -h "$HOSTNAME" -U "$USERNAME" "$DATABASE" | gzip --stdout | aws s3 cp - s3://${BACKUP_BUCKET}/${DATABASE}/${DATABASE}_${TODAY}_daily.dump.gz.in_progress; then
-            	echo "[!!ERROR!!] Failed to produce custom backup database schema of $DATABASE" 1>&2
-    	else
-            	aws s3 mv s3://${BACKUP_BUCKET}/${DATABASE}/${DATABASE}_${TODAY}_daily.dump.gz.in_progress s3://${BACKUP_BUCKET}/${DATABASE}/${DATABASE}_${TODAY}_daily.dump.gz
-    	fi
-fi
+echo "Custom backup of $DATABASE"
+	if ! pg_dump -Fc -h "$HOSTNAME" -U "$USERNAME" "$DATABASE" | gzip --stdout | aws s3 cp - s3://${BACKUP_BUCKET}/${DATABASE}/${DATABASE}_${TODAY}_daily.dump.gz.in_progress; then
+        	echo "[!!ERROR!!] Failed to produce custom backup database schema of $DATABASE" 1>&2
+	else
+        	aws s3 mv s3://${BACKUP_BUCKET}/${DATABASE}/${DATABASE}_${TODAY}_daily.dump.gz.in_progress s3://${BACKUP_BUCKET}/${DATABASE}/${DATABASE}_${TODAY}_daily.dump.gz
+	fi
 
 echo "Backup complete!"
 
