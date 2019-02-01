@@ -36,4 +36,14 @@ Create a config file based on `pg_backup.config.template`, then run as follows:
 sh pg_backup_rotated.sh -c backup.config
 ```
 
-Can also be set up to run as a cron job.
+Can also be set up to run as a cron job, for example:
+
+```
+@midnight ~/pg_backup_rotated.sh -c backup.config
+```
+
+OR
+
+```
+0 3 * * * ~/pg_backup_rotated.sh -c backup.config
+```
