@@ -71,7 +71,7 @@ echo "Today is: ${TODAY}"
 echo "Performing full backup"
 echo "--------------------------------------------"
 echo "Custom backup of $DATABASE"
-	if ! pg_dump -Fc -w -h "$HOSTNAME" -U "$USERNAME" -P "$DATABASE" | gzip --stdout | aws s3 cp - s3://${BACKUP_BUCKET}/${DATABASE}/${DATABASE}_${TODAY}_daily.dump.gz.in_progress; then
+	if ! pg_dump -Fc -w -h "$HOSTNAME" -U "$USERNAME" "$DATABASE" | gzip --stdout | aws s3 cp - s3://${BACKUP_BUCKET}/${DATABASE}/${DATABASE}_${TODAY}_daily.dump.gz.in_progress; then
         	echo "[!!ERROR!!] Failed to produce custom backup database schema of $DATABASE" 1>&2
 	else
         	aws s3 mv s3://${BACKUP_BUCKET}/${DATABASE}/${DATABASE}_${TODAY}_daily.dump.gz.in_progress s3://${BACKUP_BUCKET}/${DATABASE}/${DATABASE}_${TODAY}_daily.dump.gz
