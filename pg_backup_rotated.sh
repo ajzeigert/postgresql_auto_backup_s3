@@ -113,11 +113,9 @@ then
             # remove the oldest weekly backup
             aws s3 rm s3://${BACKUP_BUCKET}/${WEEKLY_BACKUPS[0]}
         fi
-        exit 0;
     else
         echo "Today is not the weekly backup day, deleting ${DAILY_BACKUPS[0]}"
         aws s3 rm s3://${BACKUP_BUCKET}/${DAILY_BACKUPS[0]}
-        exit 0;
     fi
 
     DAY_OF_MONTH=`date +%d`
@@ -126,11 +124,10 @@ then
     if (( $DAY_OF_MONTH == 1 ));
     then
         echo "Today is the first of the month, creating a monthly backup"
-        # if today is the first of the month, we also make a copy of today's backup and tag it with as monthly
+        # if today is the first of the month, we also make a copy of today's backup and tag it as monthly
         NEW_MONTHLY=${DAILY_BACKUPS[-1]}
         aws s3 cp s3://${BACKUP_BUCKET}/${NEW_MONTHLY} s3://${BACKUP_BUCKET}/${NEW_MONTHLY/daily/monthly}
         # Eventually, we might want to stop keeping monthly backups
-        exit 0;
     fi
     exit 0;
 fi
