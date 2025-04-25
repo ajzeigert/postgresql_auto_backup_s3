@@ -58,6 +58,12 @@ if [ ! $DATABASE ]; then
     echo "No database specified, backing up postgres"
 fi;
 
+if [ ! $BACKUP_PATH ]; then
+    BACKUP_PATH="$DATABASE"
+    echo "No backup path specified, using database name as path"
+fi;
+
+
 TODAY=`date +\%Y-\%m-\%d`
 # TODAY="2019-01-12"
 echo "Today is: ${TODAY}"
@@ -71,10 +77,10 @@ echo "Today is: ${TODAY}"
 echo "Performing full backup"
 echo "--------------------------------------------"
 echo "Custom backup of $DATABASE"
-	if ! pg_dump -Fc -w -h "$HOSTNAME" -U "$USERNAME" "$DATABASE" | gzip --stdout | aws s3 cp - s3://${BACKUP_BUCKET}/${DATABASE}/${DATABASE}_${TODAY}_daily.dump.gz.in_progress; then
+	if ! pg_dump -Fc -w -h "$HOSTNAME" -U "$USERNAME" "$DATABASE" | gzip --stdout | aws s3 cp - s3://${BACKUP_BUCKET}/${BACKUP_PATH}/${DATABASE}_${TODAY}_daily.dump.gz.in_progress; then
         	echo "[!!ERROR!!] Failed to produce custom backup database schema of $DATABASE" 1>&2
 	else
-        	aws s3 mv s3://${BACKUP_BUCKET}/${DATABASE}/${DATABASE}_${TODAY}_daily.dump.gz.in_progress s3://${BACKUP_BUCKET}/${DATABASE}/${DATABASE}_${TODAY}_daily.dump.gz
+        	aws s3 mv s3://${BACKUP_BUCKET}/${BACKUP_PATH}/${DATABASE}_${TODAY}_daily.dump.gz.in_progress s3://${BACKUP_BUCKET}/${BACKUP_PATH}/${DATABASE}_${TODAY}_daily.dump.gz
 	fi
 
 echo "Backup complete!"
@@ -84,7 +90,7 @@ echo "Backup complete!"
 echo "Managing prior backups"
 echo "--------------------------------------------"
 
-DAILY_BACKUPS=$(aws s3api list-objects-v2 --bucket $BACKUP_BUCKET --prefix $DATABASE --query 'sort_by(Contents, &Key)[?contains(Key, `daily`)].Key' --output text)
+DAILY_BACKUPS=$(aws s3api list-objects-v2 --bucket $BACKUP_BUCKET --prefix $BACKUP_PATH --query 'sort_by(Contents, &Key)[?contains(Key, `daily`)].Key' --output text)
 DAILY_BACKUPS=(${DAILY_BACKUPS//'\n'/})
 echo "Total daily backups: ${#DAILY_BACKUPS[@]}"
 # echo "Daily backups: ${DAILY_BACKUPS}"
